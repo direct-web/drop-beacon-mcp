@@ -2,10 +2,12 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import http from "node:http";
 import { z } from "zod";
 import { neon } from "@neondatabase/serverless";
 
@@ -383,9 +385,74 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // ──────────────────────────────────────
-// Start
+// Start — stdio or SSE based on PORT env
 // ──────────────────────────────────────
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
-console.error(`Drop Beacon MCP server v0.2.0 running on stdio${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
+const PORT = process.env.PORT;
+
+if (PORT) {
+  // SSE mode for hosted deployment
+  const transports = new Map<string, SSEServerTransport>();
+
+  const httpServer = http.createServer(async (req, res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+
+    if (req.method === "GET" && url.pathname === "/sse") {
+      const transport = new SSEServerTransport("/messages", res);
+      transports.set(transport.sessionId, transport);
+      res.on("close", () => transports.delete(transport.sessionId));
+      await server.connect(transport);
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/messages") {
+      const sessionId = url.searchParams.get("sessionId");
+      const transport = sessionId ? transports.get(sessionId) : undefined;
+      if (!transport) {
+        res.writeHead(404);
+        res.end("Session not found");
+        return;
+      }
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", async () => {
+        try {
+          (req as any).body = JSON.parse(body);
+          await transport.handlePostMessage(req as any, res);
+        } catch {
+          res.writeHead(400);
+          res.end("Invalid JSON");
+        }
+      });
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/health") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok", version: "0.2.0" }));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end("Not found");
+  });
+
+  httpServer.listen(parseInt(PORT), () => {
+    console.error(`Drop Beacon MCP server v0.2.0 running on SSE at :${PORT}${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
+  });
+} else {
+  // stdio mode for local use
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(`Drop Beacon MCP server v0.2.0 running on stdio${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
+}
