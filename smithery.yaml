@@ -1,0 +1,24 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      databaseUrl:
+        type: string
+        description: "Neon PostgreSQL connection string (DATABASE_URL)"
+        required: true
+      apiKey:
+        type: string
+        description: "Optional API key for authenticated access"
+    required:
+      - databaseUrl
+  commandFunction:
+    |-
+    (config) => ({
+      command: "npx",
+      args: ["-y", "drop-beacon-mcp"],
+      env: {
+        DATABASE_URL: config.databaseUrl,
+        ...(config.apiKey ? { API_KEY: config.apiKey } : {})
+      }
+    })

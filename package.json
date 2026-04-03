@@ -1,0 +1,43 @@
+{
+  "name": "drop-beacon-mcp",
+  "version": "0.2.0",
+  "description": "MCP server for Drop Beacon — search EDC products, track drops, compare prices, and get market trends from edc4me.com",
+  "type": "module",
+  "bin": {
+    "drop-beacon-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "edc",
+    "everyday-carry",
+    "drop-beacon",
+    "knives",
+    "flashlights",
+    "fidgets"
+  ],
+  "author": "Drop Beacon <direct@edc4me.com>",
+  "license": "MIT",
+  "homepage": "https://edc4me.com",
+  "repository": {
+    "type": "git",
+    "url": "https://gitlab.com/edc4me/EDC4Me"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@neondatabase/serverless": "^0.10.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "drop-beacon-mcp",
+  "display_name": "Drop Beacon",
+  "description": "Search EDC products, track drops, compare prices, and get market trends from edc4me.com. Covers 1,000+ brands across knives, fidgets, flashlights, pens, wallets, and more.",
+  "version": "0.2.0",
+  "author": "Drop Beacon",
+  "homepage": "https://edc4me.com",
+  "repository": "https://gitlab.com/edc4me/EDC4Me",
+  "license": "MIT",
+  "categories": ["shopping", "product-data"],
+  "tools": [
+    { "name": "search_products", "description": "Search EDC products by keyword, category, or brand" },
+    { "name": "get_latest_drops", "description": "Get new EDC product drops from the last 7 days" },
+    { "name": "get_brand_info", "description": "Brand stats, price range, and top products" },
+    { "name": "get_price_comparison", "description": "Compare prices across retailers for the same product" },
+    { "name": "get_market_trends", "description": "Sell-through velocity, top movers, and price distribution" },
+    { "name": "check_availability", "description": "Real-time stock check across all retailers" }
+  ],
+  "transport": {
+    "type": "stdio",
+    "command": "npx",
+    "args": ["-y", "drop-beacon-mcp"]
+  }
+}
