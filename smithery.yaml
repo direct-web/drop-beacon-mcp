@@ -5,11 +5,26 @@ startCommand:
     properties:
       databaseUrl:
         type: string
-        description: "Neon PostgreSQL connection string (DATABASE_URL)"
-        required: true
+        description: "Neon PostgreSQL connection string (DATABASE_URL). Required to connect to the Drop Beacon product database."
       apiKey:
         type: string
-        description: "Optional API key for authenticated access"
+        description: "Optional API key for authenticated access. Only required if the server enforces API key authentication."
+      category:
+        type: string
+        description: "Default product category filter. Limits results to a specific category across all tools."
+        enum:
+          - knives
+          - flashlights
+          - wallets
+          - pens
+          - fidgets_haptics
+          - multi_tools
+          - watches
+          - bags
+      resultLimit:
+        type: number
+        description: "Default number of results to return per query (1-25). Overrides per-tool defaults."
+        default: 10
     required:
       - databaseUrl
   commandFunction:
@@ -19,6 +34,8 @@ startCommand:
       args: ["-y", "drop-beacon-mcp"],
       env: {
         DATABASE_URL: config.databaseUrl,
-        ...(config.apiKey ? { API_KEY: config.apiKey } : {})
+        ...(config.apiKey ? { API_KEY: config.apiKey } : {}),
+        ...(config.category ? { DEFAULT_CATEGORY: config.category } : {}),
+        ...(config.resultLimit ? { DEFAULT_LIMIT: String(config.resultLimit) } : {})
       }
     })

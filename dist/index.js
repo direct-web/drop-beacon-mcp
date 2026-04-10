@@ -3,7 +3,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { CallToolRequestSchema, ListToolsRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema, ListResourcesRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -279,33 +279,175 @@ const API_KEY_PARAM = {
 const TOOLS_LIST = [
     {
         name: "search_products",
-        description: "Search for EDC products by keyword, category, brand, or material. Returns matching products with prices, availability, and brand info.",
-        inputSchema: { type: "object", properties: { ...API_KEY_PARAM, query: { type: "string", description: "Search keyword" }, category: { type: "string", description: "Filter by category (knives, wallets, flashlights, pens, fidgets_haptics)" }, brand: { type: "string", description: "Filter by brand name" }, limit: { type: "number", description: "Results to return (default: 10, max: 25)" } } },
+        description: "Search for EDC (everyday carry) products by keyword, category, brand, or material. Returns matching products with titles, prices, availability status, brand names, product images, and direct links to edc4me.com. Searches across 100,000+ tracked products from 1,000+ brands.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...API_KEY_PARAM,
+                query: { type: "string", description: "Search keyword to match against product titles (e.g., 'titanium knife', 'Olight flashlight', 'fidget spinner')" },
+                category: { type: "string", description: "Filter by product category. Options: knives, wallets, flashlights, pens, fidgets_haptics, multi_tools, watches, bags" },
+                brand: { type: "string", description: "Filter by brand name (e.g., 'Spyderco', 'Benchmade', 'Olight', 'Magnus')" },
+                limit: { type: "number", description: "Number of results to return (default: 10, max: 25)" },
+            },
+        },
+        annotations: { title: "Search Products", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
         name: "get_latest_drops",
-        description: "Get the latest EDC product drops from the last 7 days.",
-        inputSchema: { type: "object", properties: { ...API_KEY_PARAM, category: { type: "string", description: "Filter by category" }, limit: { type: "number", description: "Results to return (default: 15, max: 30)" } } },
+        description: "Get the latest EDC product drops and new releases from the last 7 days. Shows newly available products with prices, brands, release dates, and images. Useful for staying current on what's new in the EDC market.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...API_KEY_PARAM,
+                category: { type: "string", description: "Filter drops by product category (e.g., 'knives', 'flashlights', 'fidgets_haptics')" },
+                limit: { type: "number", description: "Number of results to return (default: 15, max: 30)" },
+            },
+        },
+        annotations: { title: "Latest Drops", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
         name: "get_brand_info",
-        description: "Get detailed info about an EDC brand including product count, price range, categories, and top products.",
-        inputSchema: { type: "object", properties: { ...API_KEY_PARAM, brand: { type: "string", description: "Brand name or slug" } }, required: ["brand"] },
+        description: "Get detailed information about an EDC brand including total product count, number of available products, price range (min/max/avg), product categories, and top 5 products by popularity. Useful for brand research and comparison.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...API_KEY_PARAM,
+                brand: { type: "string", description: "Brand name or URL slug to look up (e.g., 'Spyderco', 'chris-reeve', 'Benchmade')" },
+            },
+            required: ["brand"],
+        },
+        annotations: { title: "Brand Info", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
         name: "get_price_comparison",
-        description: "Compare prices for the same product across multiple retailers.",
-        inputSchema: { type: "object", properties: { ...API_KEY_PARAM, product: { type: "string", description: "Product name or slug" } }, required: ["product"] },
+        description: "Compare prices for the same EDC product across multiple retailers. Returns each retailer's current price, compare-at price, availability status, and direct product links. Identifies the best available price.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...API_KEY_PARAM,
+                product: { type: "string", description: "Product name or URL slug to compare prices for (e.g., 'Spyderco Para 3', 'Benchmade 940')" },
+            },
+            required: ["product"],
+        },
+        annotations: { title: "Price Comparison", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
         name: "get_market_trends",
-        description: "Get EDC market trends: sell-through velocity, top movers, price distribution.",
-        inputSchema: { type: "object", properties: { ...API_KEY_PARAM, category: { type: "string", description: "Filter by category" }, timeframe: { type: "string", enum: ["7d", "30d", "90d"], description: "Lookback window (default: 30d)" } } },
+        description: "Get EDC market trend data including sell-through rates by category, top 10 fastest-selling brands, price tier distribution, and new product counts. Useful for market analysis and understanding what's hot in the EDC space.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...API_KEY_PARAM,
+                category: { type: "string", description: "Filter trends by product category (e.g., 'knives', 'flashlights')" },
+                timeframe: { type: "string", enum: ["7d", "30d", "90d"], description: "Lookback window for new product counts (default: '30d')" },
+            },
+        },
+        annotations: { title: "Market Trends", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
         name: "check_availability",
-        description: "Check if a specific EDC product is currently in stock at any retailer.",
-        inputSchema: { type: "object", properties: { ...API_KEY_PARAM, product: { type: "string", description: "Product name or slug" } }, required: ["product"] },
+        description: "Check if a specific EDC product is currently in stock at any tracked retailer. Returns per-retailer availability, prices, and direct purchase links. Useful for finding where to buy a specific product.",
+        inputSchema: {
+            type: "object",
+            properties: {
+                ...API_KEY_PARAM,
+                product: { type: "string", description: "Product name or URL slug to check availability for (e.g., 'Chris Reeve Sebenza', 'hinderer-xm-18')" },
+            },
+            required: ["product"],
+        },
+        annotations: { title: "Check Availability", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+];
+// ──────────────────────────────────────
+// Prompts
+// ──────────────────────────────────────
+const PROMPTS_LIST = [
+    {
+        name: "product_research",
+        description: "Research an EDC product category — get current drops, market trends, top brands, and pricing data.",
+        arguments: [
+            { name: "category", description: "Product category to research (e.g., knives, flashlights, fidgets_haptics, wallets)", required: true },
+        ],
+    },
+    {
+        name: "brand_comparison",
+        description: "Compare two EDC brands side-by-side — product counts, price ranges, sell-through rates, and top products.",
+        arguments: [
+            { name: "brand1", description: "First brand name (e.g., Spyderco)", required: true },
+            { name: "brand2", description: "Second brand name (e.g., Benchmade)", required: true },
+        ],
+    },
+    {
+        name: "deal_finder",
+        description: "Find the best deals and in-stock products in a category or from a specific brand.",
+        arguments: [
+            { name: "query", description: "What to search for — a category, brand, or product type (e.g., 'titanium knives under $200')", required: true },
+        ],
+    },
+];
+function handleGetPrompt(name, args) {
+    switch (name) {
+        case "product_research":
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Research the ${args.category} category in the EDC market. Use the Drop Beacon tools to:\n1. Get the latest drops in ${args.category}\n2. Get market trends for ${args.category}\n3. Search for top products in ${args.category}\n\nProvide a comprehensive summary with current trends, notable new releases, price ranges, and top brands.`,
+                        },
+                    },
+                ],
+            };
+        case "brand_comparison":
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Compare ${args.brand1} vs ${args.brand2} in the EDC market. Use the Drop Beacon tools to:\n1. Get brand info for ${args.brand1}\n2. Get brand info for ${args.brand2}\n3. Search for products from each brand\n\nProvide a side-by-side comparison covering product range, pricing, availability, and market position.`,
+                        },
+                    },
+                ],
+            };
+        case "deal_finder":
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text: `Find the best deals and in-stock products for: ${args.query}. Use the Drop Beacon tools to:\n1. Search for matching products\n2. Check availability for top results\n3. Compare prices across retailers\n\nList the best options with prices, availability, and where to buy.`,
+                        },
+                    },
+                ],
+            };
+        default:
+            throw new Error(`Unknown prompt: ${name}`);
+    }
+}
+// ──────────────────────────────────────
+// Resources
+// ──────────────────────────────────────
+const RESOURCES_LIST = [
+    {
+        uri: "https://edc4me.com",
+        name: "Drop Beacon",
+        description: "EDC product discovery platform — browse all tracked products, brands, drops, and market data.",
+        mimeType: "text/html",
+    },
+    {
+        uri: "https://edc4me.com/drops",
+        name: "Latest Drops",
+        description: "Browse the latest EDC product drops and new releases.",
+        mimeType: "text/html",
+    },
+    {
+        uri: "https://edc4me.com/brands",
+        name: "Brand Directory",
+        description: "Browse all 1,000+ tracked EDC brands with product counts and categories.",
+        mimeType: "text/html",
     },
 ];
 function handleToolCall(name, args) {
@@ -325,7 +467,7 @@ function handleToolCall(name, args) {
     }
 }
 function createMCPServer() {
-    const s = new Server({ name: "drop-beacon-mcp", version: "0.2.0" }, { capabilities: { tools: {} } });
+    const s = new Server({ name: "drop-beacon-mcp", version: "0.2.0" }, { capabilities: { tools: {}, prompts: {}, resources: {} } });
     s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS_LIST }));
     s.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { name, arguments: args } = request.params;
@@ -336,6 +478,12 @@ function createMCPServer() {
             return { content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
         }
     });
+    s.setRequestHandler(ListPromptsRequestSchema, async () => ({ prompts: PROMPTS_LIST }));
+    s.setRequestHandler(GetPromptRequestSchema, async (request) => {
+        const { name, arguments: args } = request.params;
+        return handleGetPrompt(name, (args ?? {}));
+    });
+    s.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: RESOURCES_LIST }));
     return s;
 }
 // ──────────────────────────────────────
