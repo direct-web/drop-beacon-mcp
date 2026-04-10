@@ -3,11 +3,13 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { neon } from "@neondatabase/serverless";
 
@@ -385,19 +387,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 // ──────────────────────────────────────
-// Start — stdio or SSE based on PORT env
+// Start — stdio or HTTP based on PORT env
 // ──────────────────────────────────────
 
 const PORT = process.env.PORT;
 
 if (PORT) {
-  // SSE mode for hosted deployment
-  const transports = new Map<string, SSEServerTransport>();
+  // HTTP mode for hosted deployment (Streamable HTTP + legacy SSE)
+  const sseTransports = new Map<string, SSEServerTransport>();
+
+  // Streamable HTTP transport (required by Smithery and modern MCP clients)
+  const httpTransport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => randomUUID(),
+  });
+  await server.connect(httpTransport);
 
   const httpServer = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -407,17 +416,41 @@ if (PORT) {
 
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
+    // Streamable HTTP endpoint
+    if (url.pathname === "/mcp") {
+      if (req.method === "POST" || req.method === "GET" || req.method === "DELETE") {
+        // Parse body for POST requests
+        if (req.method === "POST") {
+          let body = "";
+          req.on("data", (chunk) => { body += chunk; });
+          req.on("end", async () => {
+            try {
+              const parsed = JSON.parse(body);
+              await httpTransport.handleRequest(req, res, parsed);
+            } catch {
+              res.writeHead(400);
+              res.end("Invalid JSON");
+            }
+          });
+        } else {
+          await httpTransport.handleRequest(req, res);
+        }
+        return;
+      }
+    }
+
+    // Legacy SSE endpoints
     if (req.method === "GET" && url.pathname === "/sse") {
       const transport = new SSEServerTransport("/messages", res);
-      transports.set(transport.sessionId, transport);
-      res.on("close", () => transports.delete(transport.sessionId));
+      sseTransports.set(transport.sessionId, transport);
+      res.on("close", () => sseTransports.delete(transport.sessionId));
       await server.connect(transport);
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/messages") {
       const sessionId = url.searchParams.get("sessionId");
-      const transport = sessionId ? transports.get(sessionId) : undefined;
+      const transport = sessionId ? sseTransports.get(sessionId) : undefined;
       if (!transport) {
         res.writeHead(404);
         res.end("Session not found");
@@ -439,7 +472,7 @@ if (PORT) {
 
     if (req.method === "GET" && url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", version: "0.2.0" }));
+      res.end(JSON.stringify({ status: "ok", version: "0.2.0", transport: "http+sse" }));
       return;
     }
 
@@ -448,7 +481,7 @@ if (PORT) {
   });
 
   httpServer.listen(parseInt(PORT), () => {
-    console.error(`Drop Beacon MCP server v0.2.0 running on SSE at :${PORT}${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
+    console.error(`Drop Beacon MCP server v0.2.0 running on HTTP+SSE at :${PORT}${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
   });
 } else {
   // stdio mode for local use

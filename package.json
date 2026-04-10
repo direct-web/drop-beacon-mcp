@@ -33,7 +33,7 @@
     "url": "https://gitlab.com/edc4me/EDC4Me"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.10.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@neondatabase/serverless": "^0.10.0",
     "zod": "^3.24.0"
   },
