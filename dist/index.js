@@ -5,7 +5,6 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, ListPromptsRequestSchema, GetPromptRequestSchema, ListResourcesRequestSchema, } from "@modelcontextprotocol/sdk/types.js";
 import http from "node:http";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { neon } from "@neondatabase/serverless";
 // ──────────────────────────────────────
@@ -492,7 +491,8 @@ function createMCPServer() {
 const PORT = process.env.PORT;
 if (PORT) {
     // HTTP mode for hosted deployment (Streamable HTTP + legacy SSE)
-    const httpSessions = new Map();
+    // Stateless: each request gets a fresh server+transport. All tools are read-only
+    // so no session state is needed between requests.
     const httpServer = http.createServer(async (req, res) => {
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -504,52 +504,36 @@ if (PORT) {
             return;
         }
         const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
-        // Streamable HTTP endpoint — per-session server+transport
+        // Streamable HTTP endpoint — stateless, per-request server+transport
         if (url.pathname === "/mcp") {
-            const sessionId = req.headers["mcp-session-id"];
             if (req.method === "POST") {
                 let body = "";
                 req.on("data", (chunk) => { body += chunk; });
                 req.on("end", async () => {
                     try {
                         const parsed = JSON.parse(body);
-                        const isInit = !Array.isArray(parsed) && parsed.method === "initialize";
-                        if (isInit) {
-                            // New session: create server + transport
-                            const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
-                            const mcpServer = createMCPServer();
-                            await mcpServer.connect(transport);
-                            const newSessionId = transport.sessionId;
-                            httpSessions.set(newSessionId, { server: mcpServer, transport });
-                            transport.onclose = () => {
-                                httpSessions.delete(newSessionId);
-                            };
-                            await transport.handleRequest(req, res, parsed);
-                        }
-                        else if (sessionId && httpSessions.has(sessionId)) {
-                            // Existing session
-                            await httpSessions.get(sessionId).transport.handleRequest(req, res, parsed);
-                        }
-                        else {
-                            res.writeHead(400, { "Content-Type": "application/json" });
-                            res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32600, message: "Bad Request: No valid session" }, id: null }));
-                        }
+                        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+                        const mcpServer = createMCPServer();
+                        await mcpServer.connect(transport);
+                        await transport.handleRequest(req, res, parsed);
                     }
                     catch {
-                        res.writeHead(400);
-                        res.end("Invalid JSON");
+                        if (!res.headersSent) {
+                            res.writeHead(400);
+                            res.end("Invalid JSON");
+                        }
                     }
                 });
                 return;
             }
-            if (req.method === "GET" || req.method === "DELETE") {
-                if (sessionId && httpSessions.has(sessionId)) {
-                    await httpSessions.get(sessionId).transport.handleRequest(req, res);
-                }
-                else {
-                    res.writeHead(400);
-                    res.end("Invalid or missing session");
-                }
+            if (req.method === "GET") {
+                res.writeHead(405);
+                res.end("Method not allowed in stateless mode");
+                return;
+            }
+            if (req.method === "DELETE") {
+                res.writeHead(405);
+                res.end("Method not allowed in stateless mode");
                 return;
             }
         }
@@ -562,21 +546,20 @@ if (PORT) {
             return;
         }
         if (req.method === "POST" && url.pathname === "/messages") {
-            // SSE message handling not supported in per-session mode — clients should use /mcp
             res.writeHead(400);
             res.end("Use /mcp endpoint for Streamable HTTP");
             return;
         }
         if (req.method === "GET" && url.pathname === "/health") {
             res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ status: "ok", version: "0.2.0", transport: "http+sse", sessions: httpSessions.size }));
+            res.end(JSON.stringify({ status: "ok", version: "0.2.0", transport: "http" }));
             return;
         }
         res.writeHead(404);
         res.end("Not found");
     });
     httpServer.listen(parseInt(PORT), () => {
-        console.error(`Drop Beacon MCP server v0.2.0 running on HTTP+SSE at :${PORT}${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
+        console.error(`Drop Beacon MCP server v0.2.0 running on HTTP at :${PORT}${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
     });
 }
 else {
