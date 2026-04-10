@@ -314,77 +314,83 @@ async function checkAvailability(input: z.infer<typeof CheckAvailabilitySchema>)
 }
 
 // ──────────────────────────────────────
-// MCP server setup
+// MCP server factory
 // ──────────────────────────────────────
-
-const server = new Server(
-  { name: "drop-beacon-mcp", version: "0.2.0" },
-  { capabilities: { tools: {} } },
-);
 
 const API_KEY_PARAM = {
   api_key: { type: "string", description: "Optional API key for authenticated access." },
 };
 
-server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [
-    {
-      name: "search_products",
-      description: "Search for EDC products by keyword, category, brand, or material. Returns matching products with prices, availability, and brand info.",
-      inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, query: { type: "string", description: "Search keyword" }, category: { type: "string", description: "Filter by category (knives, wallets, flashlights, pens, fidgets_haptics)" }, brand: { type: "string", description: "Filter by brand name" }, limit: { type: "number", description: "Results to return (default: 10, max: 25)" } } },
-    },
-    {
-      name: "get_latest_drops",
-      description: "Get the latest EDC product drops from the last 7 days.",
-      inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, category: { type: "string", description: "Filter by category" }, limit: { type: "number", description: "Results to return (default: 15, max: 30)" } } },
-    },
-    {
-      name: "get_brand_info",
-      description: "Get detailed info about an EDC brand including product count, price range, categories, and top products.",
-      inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, brand: { type: "string", description: "Brand name or slug" } }, required: ["brand"] },
-    },
-    {
-      name: "get_price_comparison",
-      description: "Compare prices for the same product across multiple retailers.",
-      inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, product: { type: "string", description: "Product name or slug" } }, required: ["product"] },
-    },
-    {
-      name: "get_market_trends",
-      description: "Get EDC market trends: sell-through velocity, top movers, price distribution.",
-      inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, category: { type: "string", description: "Filter by category" }, timeframe: { type: "string", enum: ["7d", "30d", "90d"], description: "Lookback window (default: 30d)" } } },
-    },
-    {
-      name: "check_availability",
-      description: "Check if a specific EDC product is currently in stock at any retailer.",
-      inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, product: { type: "string", description: "Product name or slug" } }, required: ["product"] },
-    },
-  ],
-}));
+const TOOLS_LIST = [
+  {
+    name: "search_products",
+    description: "Search for EDC products by keyword, category, brand, or material. Returns matching products with prices, availability, and brand info.",
+    inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, query: { type: "string", description: "Search keyword" }, category: { type: "string", description: "Filter by category (knives, wallets, flashlights, pens, fidgets_haptics)" }, brand: { type: "string", description: "Filter by brand name" }, limit: { type: "number", description: "Results to return (default: 10, max: 25)" } } },
+  },
+  {
+    name: "get_latest_drops",
+    description: "Get the latest EDC product drops from the last 7 days.",
+    inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, category: { type: "string", description: "Filter by category" }, limit: { type: "number", description: "Results to return (default: 15, max: 30)" } } },
+  },
+  {
+    name: "get_brand_info",
+    description: "Get detailed info about an EDC brand including product count, price range, categories, and top products.",
+    inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, brand: { type: "string", description: "Brand name or slug" } }, required: ["brand"] },
+  },
+  {
+    name: "get_price_comparison",
+    description: "Compare prices for the same product across multiple retailers.",
+    inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, product: { type: "string", description: "Product name or slug" } }, required: ["product"] },
+  },
+  {
+    name: "get_market_trends",
+    description: "Get EDC market trends: sell-through velocity, top movers, price distribution.",
+    inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, category: { type: "string", description: "Filter by category" }, timeframe: { type: "string", enum: ["7d", "30d", "90d"], description: "Lookback window (default: 30d)" } } },
+  },
+  {
+    name: "check_availability",
+    description: "Check if a specific EDC product is currently in stock at any retailer.",
+    inputSchema: { type: "object" as const, properties: { ...API_KEY_PARAM, product: { type: "string", description: "Product name or slug" } }, required: ["product"] },
+  },
+];
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-  const apiKey = (args as Record<string, unknown>)?.api_key as string | undefined;
+function handleToolCall(name: string, args: Record<string, unknown>) {
+  const apiKey = args?.api_key as string | undefined;
   const guard = authAndRateCheck(apiKey);
   if (!guard.allowed) {
     return { content: [{ type: "text" as const, text: `Error: ${guard.error}` }], isError: true };
   }
 
-  try {
-    let result: unknown;
-    switch (name) {
-      case "search_products": result = await searchProducts(SearchProductsSchema.parse(args ?? {})); break;
-      case "get_latest_drops": result = await getLatestDrops(GetLatestDropsSchema.parse(args ?? {})); break;
-      case "get_brand_info": result = await getBrandInfo(GetBrandInfoSchema.parse(args ?? {})); break;
-      case "get_price_comparison": result = await getPriceComparison(GetPriceComparisonSchema.parse(args ?? {})); break;
-      case "get_market_trends": result = await getMarketTrends(GetMarketTrendsSchema.parse(args ?? {})); break;
-      case "check_availability": result = await checkAvailability(CheckAvailabilitySchema.parse(args ?? {})); break;
-      default: return { content: [{ type: "text" as const, text: `Unknown tool: ${name}` }], isError: true };
-    }
-    return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
-  } catch (error) {
-    return { content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+  switch (name) {
+    case "search_products": return searchProducts(SearchProductsSchema.parse(args ?? {})).then(r => ({ content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] }));
+    case "get_latest_drops": return getLatestDrops(GetLatestDropsSchema.parse(args ?? {})).then(r => ({ content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] }));
+    case "get_brand_info": return getBrandInfo(GetBrandInfoSchema.parse(args ?? {})).then(r => ({ content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] }));
+    case "get_price_comparison": return getPriceComparison(GetPriceComparisonSchema.parse(args ?? {})).then(r => ({ content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] }));
+    case "get_market_trends": return getMarketTrends(GetMarketTrendsSchema.parse(args ?? {})).then(r => ({ content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] }));
+    case "check_availability": return checkAvailability(CheckAvailabilitySchema.parse(args ?? {})).then(r => ({ content: [{ type: "text" as const, text: JSON.stringify(r, null, 2) }] }));
+    default: return Promise.resolve({ content: [{ type: "text" as const, text: `Unknown tool: ${name}` }], isError: true });
   }
-});
+}
+
+function createMCPServer(): Server {
+  const s = new Server(
+    { name: "drop-beacon-mcp", version: "0.2.0" },
+    { capabilities: { tools: {} } },
+  );
+
+  s.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS_LIST }));
+
+  s.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      return await handleToolCall(name, (args ?? {}) as Record<string, unknown>);
+    } catch (error) {
+      return { content: [{ type: "text" as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+    }
+  });
+
+  return s;
+}
 
 // ──────────────────────────────────────
 // Start — stdio or HTTP based on PORT env
@@ -394,13 +400,7 @@ const PORT = process.env.PORT;
 
 if (PORT) {
   // HTTP mode for hosted deployment (Streamable HTTP + legacy SSE)
-  const sseTransports = new Map<string, SSEServerTransport>();
-
-  // Streamable HTTP transport (required by Smithery and modern MCP clients)
-  const httpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: () => randomUUID(),
-  });
-  await server.connect(httpTransport);
+  const httpSessions = new Map<string, { server: Server; transport: StreamableHTTPServerTransport }>();
 
   const httpServer = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -416,24 +416,53 @@ if (PORT) {
 
     const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
 
-    // Streamable HTTP endpoint
+    // Streamable HTTP endpoint — per-session server+transport
     if (url.pathname === "/mcp") {
-      if (req.method === "POST" || req.method === "GET" || req.method === "DELETE") {
-        // Parse body for POST requests
-        if (req.method === "POST") {
-          let body = "";
-          req.on("data", (chunk) => { body += chunk; });
-          req.on("end", async () => {
-            try {
-              const parsed = JSON.parse(body);
-              await httpTransport.handleRequest(req, res, parsed);
-            } catch {
-              res.writeHead(400);
-              res.end("Invalid JSON");
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+      if (req.method === "POST") {
+        let body = "";
+        req.on("data", (chunk) => { body += chunk; });
+        req.on("end", async () => {
+          try {
+            const parsed = JSON.parse(body);
+            const isInit = !Array.isArray(parsed) && parsed.method === "initialize";
+
+            if (isInit) {
+              // New session: create server + transport
+              const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+              const mcpServer = createMCPServer();
+              await mcpServer.connect(transport);
+
+              const newSessionId = transport.sessionId!;
+              httpSessions.set(newSessionId, { server: mcpServer, transport });
+
+              transport.onclose = () => {
+                httpSessions.delete(newSessionId);
+              };
+
+              await transport.handleRequest(req, res, parsed);
+            } else if (sessionId && httpSessions.has(sessionId)) {
+              // Existing session
+              await httpSessions.get(sessionId)!.transport.handleRequest(req, res, parsed);
+            } else {
+              res.writeHead(400, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32600, message: "Bad Request: No valid session" }, id: null }));
             }
-          });
+          } catch {
+            res.writeHead(400);
+            res.end("Invalid JSON");
+          }
+        });
+        return;
+      }
+
+      if (req.method === "GET" || req.method === "DELETE") {
+        if (sessionId && httpSessions.has(sessionId)) {
+          await httpSessions.get(sessionId)!.transport.handleRequest(req, res);
         } else {
-          await httpTransport.handleRequest(req, res);
+          res.writeHead(400);
+          res.end("Invalid or missing session");
         }
         return;
       }
@@ -442,37 +471,22 @@ if (PORT) {
     // Legacy SSE endpoints
     if (req.method === "GET" && url.pathname === "/sse") {
       const transport = new SSEServerTransport("/messages", res);
-      sseTransports.set(transport.sessionId, transport);
-      res.on("close", () => sseTransports.delete(transport.sessionId));
-      await server.connect(transport);
+      const mcpServer = createMCPServer();
+      res.on("close", () => { mcpServer.close(); });
+      await mcpServer.connect(transport);
       return;
     }
 
     if (req.method === "POST" && url.pathname === "/messages") {
-      const sessionId = url.searchParams.get("sessionId");
-      const transport = sessionId ? sseTransports.get(sessionId) : undefined;
-      if (!transport) {
-        res.writeHead(404);
-        res.end("Session not found");
-        return;
-      }
-      let body = "";
-      req.on("data", (chunk) => { body += chunk; });
-      req.on("end", async () => {
-        try {
-          (req as any).body = JSON.parse(body);
-          await transport.handlePostMessage(req as any, res);
-        } catch {
-          res.writeHead(400);
-          res.end("Invalid JSON");
-        }
-      });
+      // SSE message handling not supported in per-session mode — clients should use /mcp
+      res.writeHead(400);
+      res.end("Use /mcp endpoint for Streamable HTTP");
       return;
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", version: "0.2.0", transport: "http+sse" }));
+      res.end(JSON.stringify({ status: "ok", version: "0.2.0", transport: "http+sse", sessions: httpSessions.size }));
       return;
     }
 
@@ -485,6 +499,7 @@ if (PORT) {
   });
 } else {
   // stdio mode for local use
+  const server = createMCPServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`Drop Beacon MCP server v0.2.0 running on stdio${REQUIRED_API_KEY ? " (auth enabled)" : ""}`);
