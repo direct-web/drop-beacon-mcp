@@ -1,5 +1,6 @@
 {
   "name": "drop-beacon-mcp",
+  "mcpName": "io.github.direct-web/drop-beacon-mcp",
   "version": "0.2.0",
   "description": "MCP server for Drop Beacon — search EDC products, track drops, compare prices, and get market trends from edc4me.com",
   "type": "module",
