@@ -1,8 +1,8 @@
 {
   "name": "drop-beacon-mcp",
   "mcpName": "io.github.direct-web/drop-beacon-mcp",
-  "version": "0.2.0",
-  "description": "MCP server for Drop Beacon — search EDC products, track drops, compare prices, and get market trends from edc4me.com",
+  "version": "0.3.0",
+  "description": "Read-only MCP for Drop Beacon public EDC catalog data. No database credentials required.",
   "type": "module",
   "bin": {
     "drop-beacon-mcp": "dist/index.js"
@@ -10,11 +10,15 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm test && npm run security:scan",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "security:scan": "node scripts/scan-secrets.mjs --tracked"
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "SECURITY.md"
   ],
   "keywords": [
     "mcp",
@@ -31,15 +35,17 @@
   "homepage": "https://edc4me.com",
   "repository": {
     "type": "git",
-    "url": "https://gitlab.com/edc4me/EDC4Me"
+    "url": "https://github.com/direct-web/drop-beacon-mcp"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@neondatabase/serverless": "^0.10.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
