@@ -3,10 +3,10 @@ services:
     name: drop-beacon-mcp
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm start
     envVars:
-      - key: DATABASE_URL
-        sync: false
       - key: PORT
         value: 10000
+      - key: HOST
+        value: 0.0.0.0

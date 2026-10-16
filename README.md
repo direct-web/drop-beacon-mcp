@@ -1,83 +1,53 @@
-# Drop Beacon MCP Server
+# Drop Beacon MCP
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that gives AI assistants access to real-time EDC (everyday carry) product data from [Drop Beacon](https://edc4me.com) — 100,000+ products across 1,000+ brands.
+Read-only EDC product discovery through Drop Beacon's public HTTPS catalog API.
+**No database password, DATABASE_URL, or API key is required.**
 
-## Tools
+## Install
 
-| Tool | Description |
-|------|-------------|
-| `search_products` | Search EDC products by keyword, category, brand, or material |
-| `get_latest_drops` | Get new product drops from the last 7 days |
-| `get_brand_info` | Brand stats, price range, categories, and top products |
-| `get_price_comparison` | Compare prices for the same product across retailers |
-| `get_market_trends` | Sell-through velocity, top movers, and price distribution |
-| `check_availability` | Real-time stock check across all retailers |
-
-## Quick Start
-
-```bash
-npx drop-beacon-mcp
-```
-
-Requires a `DATABASE_URL` environment variable pointing to the Drop Beacon database.
-
-## Claude Desktop Configuration
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Requires Node.js 20 or newer. Configure your MCP client:
 
 ```json
 {
   "mcpServers": {
     "drop-beacon": {
       "command": "npx",
-      "args": ["-y", "drop-beacon-mcp"],
-      "env": {
-        "DATABASE_URL": "your-neon-connection-string"
-      }
+      "args": ["-y", "drop-beacon-mcp@0.3.0"]
     }
   }
 }
 ```
 
-## Categories
+## Tools
 
-Products span these EDC categories:
-- Knives
-- Fidgets & Haptics
-- Flashlights
-- Pens & Writing
-- Wallets & Organization
-- Multitools & Pry Bars
-- Watches
-- Bags & Pouches
+| Tool | Public data returned |
+| --- | --- |
+| `search_products` | Up to 25 currently available catalog matches |
+| `get_latest_drops` | Recent in-stock listings first seen within seven days |
+| `get_brand_info` | Public brand profile and available-product count |
+| `check_availability` | Up to 10 matching available listings |
 
-## Authentication
+Categories: `knife`, `fidget`, `flashlight`, `pen`, `wallet`, `multi_tool`, `patch`, `other`.
+Search arguments accept up to 120 characters. Results are catalog snapshots, not guarantees of current retailer stock. Compare the exact material, configuration and condition on the linked product page. No match does not mean unavailable everywhere. First seen means discovered by Drop Beacon, not released by the manufacturer.
 
-Set the `API_KEY` environment variable to require an API key for all requests. If not set, the server runs without authentication.
+## Migration from 0.2.x
 
-## Rate Limiting
+Remove DATABASE_URL and API_KEY from client and hosted-service settings. Upgrade any cached installation to 0.3.0 or newer. If a real database password was ever shared, revoke it with the database provider; editing a listing alone cannot revoke access.
 
-60 requests per minute per process (in-memory, resets on restart).
+Direct SQL access, arbitrary URLs, private records, and internal market analytics are not supported. `get_market_trends` and `get_price_comparison` have been retired from this public MCP; use the [market pages](https://edc4me.com/market/yield) and [product comparison](https://edc4me.com/compare) on the website. The old optional API_KEY gate and legacy SSE endpoints are removed. Do not send credentials as tool arguments.
 
-## Examples
+## Security boundary
 
-**"What titanium fidgets dropped this week?"**
-Uses `get_latest_drops` with category filter.
+The package has no database driver and only performs credential-free GET requests to `https://edc4me.com/api/drops` and `/api/brands`. Explicit output allowlists prevent new upstream fields from silently becoming MCP output. Requests reject redirects, time out after 15 seconds, cap response bodies at 2 MB, and return generic errors without upstream response bodies. Tool arguments cannot override the origin, endpoint, HTTP method, or headers.
 
-**"Compare prices for the Spyderco Para 3"**
-Uses `get_price_comparison` to show prices across retailers.
+The process allows 60 tool calls per minute, shared across clients and reset on restart; this is a best-effort local limit, not a distributed quota. The public API also applies its own edge protections. A 429 response asks the client to wait, never to supply database access.
 
-**"Is the Grimsmo Norseman in stock anywhere?"**
-Uses `check_availability` to check all retailers.
+Stdio is the default. Optional stateless HTTP uses `PORT`, binds to loopback by default, and serves POST `/mcp` plus GET `/health`. Hosted services can explicitly set `HOST=0.0.0.0`. Browser origins other than `https://edc4me.com` are rejected, request bodies are limited to 64 KB, and batched requests are rejected. No customer-specific authentication is needed because only public catalog data is available.
 
-**"What are the hottest EDC brands right now?"**
-Uses `get_market_trends` to show sell-through velocity.
+## Development
 
-## License
+`npm ci && npm test`
 
-MIT
+`npm run security:scan` scans tracked files, including documentation and environment examples, without printing secret values. See `SECURITY.md` for limitations and local hook setup.
 
-## Links
-
-- [Drop Beacon](https://edc4me.com)
-- [npm](https://www.npmjs.com/package/drop-beacon-mcp)
+[Drop Beacon](https://edc4me.com) · [Public API](https://edc4me.com/.well-known/openapi.yaml) · MIT
